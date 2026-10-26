@@ -1,12 +1,15 @@
+import { useWindowFocus } from '@vueuse/core';
 import { defineStore } from 'pinia';
-import { computed, ref, shallowRef } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
 import { browser } from 'wxt/browser';
 
+import { useActiveTab } from '@/composables/useActiveTab';
 import { useStorageItem } from '@/composables/useStorageItem';
-import { interpolate, isFullUrl, type Lookup, macroScopes, type SavedRequest } from '@/lib/compose';
+import { interpolate, isFullUrl, type Lookup, type SavedRequest } from '@/lib/compose';
 import { formatJson } from '@/lib/format';
+import type { MacroSource } from '@/lib/macro-editor';
 import { fetchInPage, type PageRequest, type PageResponse, readWebStorage } from '@/lib/page';
-import { clone, type LogEntry } from '@/lib/rules';
+import { clone, hostOf, type LogEntry } from '@/lib/rules';
 import { workspaceItem } from '@/lib/storage';
 
 const blank = (): SavedRequest => ({
@@ -20,12 +23,22 @@ const blank = (): SavedRequest => ({
   withCookies: true,
 });
 
-const toMap = (items: { key: string; value: string }[]) =>
+type Values = Map<string, string>;
+
+const toMap = (items: { key: string; value: string }[]): Values =>
   new Map(items.map((i) => [i.key, i.value]));
+
+const PAGE_SCOPES = [
+  ['local', 'localStorage'],
+  ['session', 'sessionStorage'],
+  ['cookie', 'Cookies'],
+] as const;
 
 export const useComposerStore = defineStore('composer', () => {
   const { state: workspace, ready } = useStorageItem(workspaceItem);
+  const { tab } = useActiveTab();
   const draft = ref(blank());
+  const page = shallowRef<Partial<Record<'local' | 'session' | 'cookie', Values>>>({});
   const response = shallowRef<PageResponse>();
   const sending = shallowRef(false);
 
@@ -42,6 +55,64 @@ export const useComposerStore = defineStore('composer', () => {
   const envVars = computed(
     () => new Map(environment.value?.vars.filter((v) => v.name).map((v) => [v.name, v.value])),
   );
+
+  const lookup = computed<Lookup>(() => {
+    const env = envVars.value;
+    const { local, session, cookie } = page.value;
+    return (scope, key) => {
+      switch (scope) {
+        case 'env':
+          return env.get(key);
+        case 'local':
+          return local?.get(key);
+        case 'session':
+          return session?.get(key);
+        case 'cookie':
+          return cookie?.get(key);
+        case '$uuid':
+          return crypto.randomUUID();
+        case '$timestamp':
+          return String(Math.floor(Date.now() / 1000));
+      }
+    };
+  });
+
+  const macroSource = computed<MacroSource>(() => ({
+    lookup: lookup.value,
+    options: [
+      ...[...envVars.value.keys()].map((key) => ({ label: `env.${key}`, section: 'Environment' })),
+      ...PAGE_SCOPES.flatMap(([scope, section]) =>
+        [...(page.value[scope]?.keys() ?? [])].map((key) => ({
+          label: `${scope}.${key}`,
+          section,
+        })),
+      ),
+      { label: '$uuid', section: 'Dynamic' },
+      { label: '$timestamp', section: 'Dynamic' },
+    ],
+  }));
+
+  async function refreshPage() {
+    const { id, url } = tab.value ?? {};
+    if (id === undefined || !hostOf(url)) {
+      page.value = {};
+      return;
+    }
+    const settle = <T>(promise: Promise<T>) => promise.catch(() => undefined);
+    const [local, session, cookie] = await Promise.all([
+      settle(readWebStorage(id, 'localStorage').then(toMap)),
+      settle(readWebStorage(id, 'sessionStorage').then(toMap)),
+      settle(
+        browser.cookies
+          .getAll({ url })
+          .then((list) => toMap(list.map((c) => ({ key: c.name, value: c.value })))),
+      ),
+    ]);
+    page.value = { local, session, cookie };
+  }
+
+  watch(() => [tab.value?.id, tab.value?.url, tab.value?.status], refreshPage, { immediate: true });
+  watch(useWindowFocus(), (focused) => focused && refreshPage());
 
   function load(entry: LogEntry) {
     draft.value = {
@@ -109,44 +180,16 @@ export const useComposerStore = defineStore('composer', () => {
     };
   }
 
-  async function lookupFor(tabId: number, pageUrl: string, texts: string[]): Promise<Lookup> {
-    const scopes = macroScopes([...texts, ...envVars.value.values()].join('\n'));
-    const [local, session, cookies] = await Promise.all([
-      scopes.has('local') ? readWebStorage(tabId, 'localStorage').then(toMap) : undefined,
-      scopes.has('session') ? readWebStorage(tabId, 'sessionStorage').then(toMap) : undefined,
-      scopes.has('cookie')
-        ? browser.cookies
-            .getAll({ url: pageUrl })
-            .then((list) => toMap(list.map((c) => ({ key: c.name, value: c.value }))))
-        : undefined,
-    ]);
-    return (scope, key) => {
-      switch (scope) {
-        case 'env':
-          return envVars.value.get(key);
-        case 'local':
-          return local?.get(key);
-        case 'session':
-          return session?.get(key);
-        case 'cookie':
-          return cookies?.get(key);
-        case '$uuid':
-          return crypto.randomUUID();
-        case '$timestamp':
-          return String(Math.floor(Date.now() / 1000));
-      }
-    };
-  }
-
-  async function send(tabId: number, pageUrl: string) {
+  async function send() {
+    const tabId = tab.value?.id;
+    if (tabId === undefined) return;
     const { method, url, headers, body, withCookies } = draft.value;
     const payload = method === 'GET' || method === 'HEAD' ? undefined : body;
     sending.value = true;
     try {
-      const texts = [url, ...headers.flatMap((h) => [h.name, h.value]), payload ?? ''];
-      const lookup = await lookupFor(tabId, pageUrl, texts);
+      await refreshPage();
       const missing = new Set<string>();
-      const resolve = (text: string) => interpolate(text, lookup, missing);
+      const resolve = (text: string) => interpolate(text, lookup.value, missing);
       const request: PageRequest = {
         method,
         url: resolve(url),
@@ -181,7 +224,8 @@ export const useComposerStore = defineStore('composer', () => {
     saved,
     dirty,
     environment,
-    envVars,
+    macroSource,
+    refreshPage,
     load,
     open,
     reset,

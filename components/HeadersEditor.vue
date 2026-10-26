@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { PlusIcon, XIcon } from '@lucide/vue';
 
+import MacroInput from '@/components/MacroInput.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import type { MacroSource } from '@/lib/macro-editor';
 import type { Header } from '@/lib/rules';
 
-const { noun = 'Header' } = defineProps<{ noun?: string }>();
+const { noun = 'Header', macros } = defineProps<{ noun?: string; macros?: MacroSource }>();
 const headers = defineModel<Header[]>({ required: true });
 
 function update(index: number, patch: Partial<Header>) {
@@ -23,7 +25,17 @@ function update(index: number, patch: Partial<Header>) {
         class="h-8 min-w-0 flex-2 font-mono text-xs"
         @update:model-value="update(i, { name: String($event) })"
       />
+      <MacroInput
+        v-if="macros"
+        :model-value="header.value"
+        :source="macros"
+        placeholder="Value"
+        :label="`${noun} value`"
+        class="flex-3"
+        @update:model-value="update(i, { value: $event })"
+      />
       <Input
+        v-else
         :model-value="header.value"
         placeholder="Value"
         :aria-label="`${noun} value`"

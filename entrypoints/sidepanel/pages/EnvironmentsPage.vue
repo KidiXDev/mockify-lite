@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { PlusIcon, Trash2Icon, VariableIcon } from '@lucide/vue';
+import { onMounted } from 'vue';
 import { toast } from 'vue-sonner';
 
 import EmptyState from '@/components/EmptyState.vue';
@@ -10,6 +11,8 @@ import { Input } from '@/components/ui/input';
 import { useComposerStore } from '@/stores/composer';
 
 const composer = useComposerStore();
+
+onMounted(composer.refreshPage);
 
 function toggle(id: string) {
   composer.workspace.activeEnv = composer.workspace.activeEnv === id ? '' : id;
@@ -63,6 +66,6 @@ function remove(id: string) {
         <Trash2Icon />
       </Button>
     </div>
-    <HeadersEditor v-model="env.vars" noun="Variable" />
+    <HeadersEditor v-model="env.vars" noun="Variable" :macros="composer.macroSource" />
   </section>
 </template>

@@ -25,7 +25,7 @@ export interface Workspace {
 
 export type Lookup = (scope: string, key: string) => string | undefined;
 
-const MACRO = /\{\{\s*([^{}]+?)\s*\}\}/g;
+export const MACRO = /\{\{\s*([^{}]+?)\s*\}\}/g;
 
 function replaceOnce(text: string, lookup: Lookup, missing?: Set<string>) {
   return text.replace(MACRO, (match, expr: string) => {
@@ -39,10 +39,6 @@ function replaceOnce(text: string, lookup: Lookup, missing?: Set<string>) {
 // The second pass resolves macros inside values, e.g. an env var set to {{local.token}}.
 export function interpolate(text: string, lookup: Lookup, missing?: Set<string>): string {
   return replaceOnce(replaceOnce(text, lookup), lookup, missing);
-}
-
-export function macroScopes(text: string): Set<string> {
-  return new Set([...text.matchAll(MACRO)].map((m) => m[1]!.split('.')[0]!));
 }
 
 export const isFullUrl = (url: string) => /^https?:\/\/[^/\s]/i.test(url.trim());

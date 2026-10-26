@@ -1,7 +1,7 @@
 /// <reference types="bun-types/test" />
 import { expect, test } from 'bun:test';
 
-import { interpolate, isFullUrl, macroScopes } from './compose';
+import { interpolate, isFullUrl } from './compose';
 import { decodeJwt, toCurl, toFetch, toPowerShell } from './format';
 import {
   applyBody,
@@ -189,9 +189,6 @@ test('interpolate', () => {
     '{{cookie.sid}} {{env.constructor}}',
   );
   expect([...missing]).toEqual(['{{cookie.sid}}', '{{env.constructor}}']);
-  expect(macroScopes('{{env.A}} {{local.a.b}} {{$uuid}}')).toEqual(
-    new Set(['env', 'local', '$uuid']),
-  );
   expect(isFullUrl('https://api.app.com/x')).toBe(true);
   expect(isFullUrl('/api/x')).toBe(false);
   expect(isFullUrl('localhost:8000/x')).toBe(false);

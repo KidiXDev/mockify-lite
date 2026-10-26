@@ -4,26 +4,42 @@ import { syntaxHighlighting } from '@codemirror/language';
 import { Compartment, EditorState } from '@codemirror/state';
 import { oneDarkHighlightStyle } from '@codemirror/theme-one-dark';
 import { EditorView, placeholder as placeholderExt } from '@codemirror/view';
+import { CopyIcon } from '@lucide/vue';
+import { useClipboard } from '@vueuse/core';
 import { basicSetup } from 'codemirror';
 import { computed, onBeforeUnmount, onMounted, useTemplateRef, watch } from 'vue';
+import { toast } from 'vue-sonner';
 
 import { Button } from '@/components/ui/button';
 import { useTheme } from '@/composables/useTheme';
+import { MACRO } from '@/lib/compose';
 import { formatJson, isJson } from '@/lib/format';
+import { type MacroSource, macros as macroExtensions, refreshMacros } from '@/lib/macro-editor';
 
 const {
   readonly = false,
   placeholder = '',
   strict = true,
-} = defineProps<{ readonly?: boolean; placeholder?: string; strict?: boolean }>();
+  macros,
+} = defineProps<{
+  readonly?: boolean;
+  placeholder?: string;
+  strict?: boolean;
+  macros?: MacroSource;
+}>();
 const model = defineModel<string>({ required: true });
 
 const { isDark } = useTheme();
+const { copy } = useClipboard({ legacy: true });
 const el = useTemplateRef('el');
 const highlight = new Compartment();
 let view: EditorView | undefined;
 
-const invalid = computed(() => model.value.trim() !== '' && !isJson(model.value));
+// Macros stand in for any JSON value, so a placeholder number keeps the check meaningful.
+const invalid = computed(
+  () =>
+    model.value.trim() !== '' && !isJson(macros ? model.value.replace(MACRO, '0') : model.value),
+);
 const canFormat = computed(() => model.value.trim() !== '' && !invalid.value);
 
 const theme = EditorView.theme({
@@ -57,6 +73,7 @@ onMounted(() => {
         EditorState.readOnly.of(readonly),
         placeholderExt(placeholder),
         highlight.of(isDark.value ? syntaxHighlighting(oneDarkHighlightStyle) : []),
+        macros ? macroExtensions(() => macros) : [],
         EditorView.updateListener.of((update) => {
           if (update.docChanged) model.value = update.state.doc.toString();
         }),
@@ -73,6 +90,16 @@ watch(model, (value) => {
   }
 });
 
+async function copyAll() {
+  await copy(model.value);
+  toast.success('Copied');
+}
+
+watch(
+  () => macros,
+  () => view?.dispatch({ effects: refreshMacros.of(null) }),
+);
+
 watch(isDark, (dark) => {
   view?.dispatch({
     effects: highlight.reconfigure(dark ? syntaxHighlighting(oneDarkHighlightStyle) : []),
@@ -81,8 +108,18 @@ watch(isDark, (dark) => {
 </script>
 
 <template>
-  <div class="bg-background dark:bg-input/30 overflow-hidden rounded-md border">
+  <div class="bg-background dark:bg-input/30 group relative overflow-hidden rounded-md border">
     <div ref="el" />
+    <Button
+      v-if="readonly && model"
+      variant="outline"
+      size="icon-xs"
+      aria-label="Copy"
+      class="absolute top-1.5 right-1.5 z-10 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+      @click="copyAll"
+    >
+      <CopyIcon />
+    </Button>
     <div v-if="!readonly" class="flex h-7 items-center justify-between border-t px-2 text-xs">
       <span class="text-amber-600 dark:text-amber-400">{{
         strict && invalid ? 'Not JSON' : ''
