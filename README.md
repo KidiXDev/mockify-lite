@@ -12,7 +12,17 @@ A Chrome side-panel extension for frontend debugging: mock or modify API respons
   - **Delay**: add latency to any of the above.
 - **Scenarios**: group rules and switch a whole group on or off.
 - **Log**: fetch and XHR traffic for the current tab. "Mock" turns a request into a prefilled rule, "Resend" opens it in Compose, and you can copy any request as cURL.
-- **Compose**: send a request from inside the page, so cookies, origin and CORS behave like the app's own requests.
+- **Compose**: send a request from inside the page, so cookies, origin and CORS behave like the app's own requests. Save requests into collections, and switch between environments (for example `BASE_URL` for local and staging). The URL, headers and body accept macros:
+
+  | Macro                               | Value                                                                  |
+  | ----------------------------------- | ---------------------------------------------------------------------- |
+  | `{{env.KEY}}`                       | Variable from the active environment. Values can contain other macros. |
+  | `{{local.key}}` / `{{session.key}}` | The page's localStorage / sessionStorage                               |
+  | `{{cookie.name}}`                   | Cookie for the current page, including httpOnly                        |
+  | `{{$uuid}}` / `{{$timestamp}}`      | Random UUID / Unix time in seconds                                     |
+
+  A request with an unresolved macro is not sent.
+
 - **Storage**: view and edit localStorage, sessionStorage and cookies (including httpOnly). JWT values are decoded, with their expiry.
 - **Clear site data**: wipes cookies, storage and cache for the current site, then reloads.
 - **Import / export** rules as JSON.
@@ -31,7 +41,7 @@ Limitations: synchronous XHR and requests from service workers or web workers by
 bun install
 bun run dev          # Chrome with the extension loaded and HMR
 bun run build        # .output/chrome-mv3, load it via chrome://extensions → Load unpacked
-bun test             # unit tests for matching, merge patch, rewrite, import, cURL, JWT
+bun test             # unit tests for matching, merge patch, rewrite, import, cURL, JWT, macros
 bun run type-check
 bun run lint
 bun run format

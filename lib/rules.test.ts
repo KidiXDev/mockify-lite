@@ -1,6 +1,7 @@
 /// <reference types="bun-types/test" />
 import { expect, test } from 'bun:test';
 
+import { interpolate, isFullUrl, macroScopes } from './compose';
 import { decodeJwt, toCurl } from './format';
 import {
   applyBody,
@@ -137,4 +138,26 @@ test('sites', () => {
   expect(siteMatches('*.app.com', 'x.app.com')).toBe(true);
   expect(siteMatches('*.app.com', 'app.com')).toBe(true);
   expect(siteMatches('*.app.com', 'evilapp.com')).toBe(false);
+});
+
+test('interpolate', () => {
+  const vars: Record<string, Record<string, string>> = {
+    env: { BASE_URL: 'https://api.app.com', TOKEN: '{{local.auth.token}}' },
+    local: { 'auth.token': 'abc$&' },
+  };
+  const lookup = (scope: string, key: string) =>
+    Object.hasOwn(vars, scope) && Object.hasOwn(vars[scope]!, key) ? vars[scope]![key] : undefined;
+  const missing = new Set<string>();
+  expect(interpolate('{{env.BASE_URL}}/users', lookup)).toBe('https://api.app.com/users');
+  expect(interpolate('Bearer {{ env.TOKEN }}', lookup)).toBe('Bearer abc$&');
+  expect(interpolate('{{cookie.sid}} {{env.constructor}}', lookup, missing)).toBe(
+    '{{cookie.sid}} {{env.constructor}}',
+  );
+  expect([...missing]).toEqual(['{{cookie.sid}}', '{{env.constructor}}']);
+  expect(macroScopes('{{env.A}} {{local.a.b}} {{$uuid}}')).toEqual(
+    new Set(['env', 'local', '$uuid']),
+  );
+  expect(isFullUrl('https://api.app.com/x')).toBe(true);
+  expect(isFullUrl('/api/x')).toBe(false);
+  expect(isFullUrl('localhost:8000/x')).toBe(false);
 });

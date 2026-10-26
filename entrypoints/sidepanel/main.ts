@@ -2,6 +2,7 @@ import { createPinia } from 'pinia';
 import { createApp } from 'vue';
 
 import 'vue-sonner/style.css';
+import { useComposerStore } from '@/stores/composer';
 import { useRulesStore } from '@/stores/rules';
 import { useSettingsStore } from '@/stores/settings';
 
@@ -12,6 +13,8 @@ import { router } from './router';
 const pinia = createPinia();
 const app = createApp(App).use(pinia).use(router);
 
-void Promise.all([useRulesStore(pinia).ready, useSettingsStore(pinia).ready]).then(() =>
-  app.mount('#app'),
-);
+void Promise.all([
+  useRulesStore(pinia).ready,
+  useSettingsStore(pinia).ready,
+  useComposerStore(pinia).ready,
+]).then(() => app.mount('#app'));

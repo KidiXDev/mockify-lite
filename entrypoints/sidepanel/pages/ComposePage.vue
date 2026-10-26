@@ -1,6 +1,17 @@
 <script setup lang="ts">
-import { LoaderCircleIcon, SendIcon } from '@lucide/vue';
-import { computed } from 'vue';
+import {
+  ChevronDownIcon,
+  FolderIcon,
+  LoaderCircleIcon,
+  PencilIcon,
+  PlusIcon,
+  SendIcon,
+  Settings2Icon,
+  VariableIcon,
+} from '@lucide/vue';
+import { computed, ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { toast } from 'vue-sonner';
 
 import FormField from '@/components/FormField.vue';
 import HeadersEditor from '@/components/HeadersEditor.vue';
@@ -8,6 +19,23 @@ import HeaderTable from '@/components/HeaderTable.vue';
 import JsonEditor from '@/components/JsonEditor.vue';
 import PageBar from '@/components/PageBar.vue';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -19,29 +47,98 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useActiveTab } from '@/composables/useActiveTab';
+import { interpolate, isFullUrl } from '@/lib/compose';
 import { formatBytes, formatJson, formatMs, statusClass } from '@/lib/format';
 import { METHODS } from '@/lib/rules';
 import { useComposerStore } from '@/stores/composer';
 
+const router = useRouter();
 const composer = useComposerStore();
 const { tab, host } = useActiveTab();
+const details = ref<{ name: string; collection: string }>();
 
 const url = computed(() => composer.draft.url.trim());
-const validUrl = computed(() => /^https?:\/\/[^/\s]/i.test(url.value));
-const urlError = computed(() => url.value !== '' && !validUrl.value);
+const envUrl = computed(() =>
+  interpolate(url.value, (scope, key) => (scope === 'env' ? composer.envVars.get(key) : undefined)),
+);
+const urlError = computed(
+  () => url.value !== '' && !isFullUrl(envUrl.value) && !envUrl.value.startsWith('{{'),
+);
 const hasBody = computed(() => !['GET', 'HEAD'].includes(composer.draft.method));
-const canSend = computed(() => !!host.value && validUrl.value && !composer.sending);
+const canSend = computed(
+  () => !!host.value && url.value !== '' && !urlError.value && !composer.sending,
+);
 const body = computed(() => formatJson(composer.response?.body ?? ''));
 const size = computed(() => formatBytes(new Blob([composer.response?.body ?? '']).size));
 
+const detailsOpen = computed({
+  get: () => !!details.value,
+  set: (open) => {
+    if (!open) details.value = undefined;
+  },
+});
+
 function send() {
-  if (canSend.value && tab.value?.id !== undefined) void composer.send(tab.value.id);
+  if (canSend.value && tab.value?.id !== undefined)
+    void composer.send(tab.value.id, tab.value.url!);
+}
+
+function editDetails() {
+  details.value = { name: composer.draft.name, collection: composer.draft.collection };
+}
+
+function save() {
+  if (!composer.saved) return editDetails();
+  composer.save();
+  toast.success('Saved');
+}
+
+function saveDetails() {
+  composer.draft.name = details.value!.name.trim();
+  composer.draft.collection = details.value!.collection.trim();
+  composer.save();
+  details.value = undefined;
+  toast.success('Saved');
 }
 </script>
 
 <template>
-  <PageBar title="Compose" />
+  <PageBar>
+    <button
+      type="button"
+      class="hover:bg-accent dark:hover:bg-accent/50 -ml-1.5 flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1"
+      @click="editDetails"
+    >
+      <span class="truncate font-medium">{{ composer.draft.name || 'Untitled' }}</span>
+      <span v-if="composer.draft.collection" class="text-muted-foreground truncate text-xs">{{
+        composer.draft.collection
+      }}</span>
+      <PencilIcon class="text-muted-foreground size-3 shrink-0" />
+    </button>
+    <template #actions>
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button variant="ghost" size="icon-sm" aria-label="New request" @click="composer.reset()">
+            <PlusIcon />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>New</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button variant="ghost" size="icon-sm" as-child>
+            <RouterLink to="/compose/collections" aria-label="Collections"
+              ><FolderIcon
+            /></RouterLink>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Collections</TooltipContent>
+      </Tooltip>
+      <Button size="sm" :disabled="!composer.dirty || !url" @click="save">Save</Button>
+    </template>
+  </PageBar>
 
   <form class="space-y-3 p-3" @submit.prevent="send">
     <div class="flex gap-1.5">
@@ -57,16 +154,50 @@ function send() {
       </Select>
       <Input
         v-model="composer.draft.url"
-        placeholder="https://api.example.com/users"
+        placeholder="{{env.BASE_URL}}/users"
         aria-label="URL"
         :aria-invalid="urlError || undefined"
         class="h-8 min-w-0 flex-1 font-mono text-xs"
       />
     </div>
     <p v-if="urlError" class="text-destructive text-xs">Full URL required</p>
+    <p
+      v-else-if="envUrl !== url"
+      class="text-muted-foreground truncate font-mono text-xs"
+      :title="envUrl"
+    >
+      {{ envUrl }}
+    </p>
     <div class="flex items-center gap-2">
+      <DropdownMenu>
+        <DropdownMenuTrigger as-child>
+          <Button variant="outline" size="sm" class="min-w-0 shrink text-xs">
+            <VariableIcon />
+            <span class="truncate" :class="{ 'text-muted-foreground': !composer.environment }">{{
+              composer.environment ? composer.environment.name || 'Untitled' : 'No environment'
+            }}</span>
+            <ChevronDownIcon class="opacity-50" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <DropdownMenuRadioGroup v-model="composer.workspace.activeEnv">
+            <DropdownMenuRadioItem value="" class="text-xs">No environment</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem
+              v-for="env in composer.workspace.environments"
+              :key="env.id"
+              :value="env.id"
+              class="text-xs"
+              >{{ env.name || 'Untitled' }}</DropdownMenuRadioItem
+            >
+          </DropdownMenuRadioGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem class="text-xs" @select="router.push('/compose/environments')"
+            ><Settings2Icon /> Manage</DropdownMenuItem
+          >
+        </DropdownMenuContent>
+      </DropdownMenu>
       <Switch id="with-cookies" v-model="composer.draft.withCookies" />
-      <Label for="with-cookies" class="text-xs font-normal">Send cookies</Label>
+      <Label for="with-cookies" class="text-xs font-normal whitespace-nowrap">Send cookies</Label>
       <Button type="submit" size="sm" class="ml-auto" :disabled="!canSend">
         <LoaderCircleIcon v-if="composer.sending" class="animate-spin" />
         <SendIcon v-else />
@@ -102,7 +233,7 @@ function send() {
     </div>
     <p
       v-if="composer.response.error"
-      class="bg-destructive/10 text-destructive rounded-md px-2.5 py-2 text-xs"
+      class="bg-destructive/10 text-destructive rounded-md px-2.5 py-2 text-xs break-all"
     >
       {{ composer.response.error }}
     </p>
@@ -121,4 +252,33 @@ function send() {
       </TabsContent>
     </Tabs>
   </section>
+
+  <Dialog v-model:open="detailsOpen">
+    <DialogContent v-if="details" class="gap-3 p-4">
+      <DialogHeader>
+        <DialogTitle>Save request</DialogTitle>
+        <DialogDescription class="sr-only">Name and collection</DialogDescription>
+      </DialogHeader>
+      <form class="space-y-3" @submit.prevent="saveDetails">
+        <FormField v-slot="{ id }" label="Name">
+          <Input :id="id" v-model="details.name" placeholder="Untitled" class="h-8 text-xs" />
+        </FormField>
+        <FormField v-slot="{ id }" label="Collection">
+          <Input
+            :id="id"
+            v-model="details.collection"
+            list="collections"
+            placeholder="None"
+            class="h-8 text-xs"
+          />
+          <datalist id="collections">
+            <option v-for="name in composer.collections" :key="name" :value="name" />
+          </datalist>
+        </FormField>
+        <DialogFooter class="flex-row justify-end">
+          <Button type="submit" size="sm">Save</Button>
+        </DialogFooter>
+      </form>
+    </DialogContent>
+  </Dialog>
 </template>

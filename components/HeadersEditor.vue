@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { Header } from '@/lib/rules';
 
+const { noun = 'Header' } = defineProps<{ noun?: string }>();
 const headers = defineModel<Header[]>({ required: true });
 
 function update(index: number, patch: Partial<Header>) {
@@ -18,21 +19,21 @@ function update(index: number, patch: Partial<Header>) {
       <Input
         :model-value="header.name"
         placeholder="Name"
-        aria-label="Header name"
+        :aria-label="`${noun} name`"
         class="h-8 min-w-0 flex-2 font-mono text-xs"
         @update:model-value="update(i, { name: String($event) })"
       />
       <Input
         :model-value="header.value"
         placeholder="Value"
-        aria-label="Header value"
+        :aria-label="`${noun} value`"
         class="h-8 min-w-0 flex-3 font-mono text-xs"
         @update:model-value="update(i, { value: String($event) })"
       />
       <Button
         variant="ghost"
         size="icon-sm"
-        aria-label="Remove header"
+        :aria-label="`Remove ${noun.toLowerCase()}`"
         @click="headers = headers.filter((_, j) => j !== i)"
       >
         <XIcon />
@@ -44,7 +45,7 @@ function update(index: number, patch: Partial<Header>) {
       class="text-muted-foreground"
       @click="headers = [...headers, { name: '', value: '' }]"
     >
-      <PlusIcon /> Header
+      <PlusIcon /> {{ noun }}
     </Button>
   </div>
 </template>
