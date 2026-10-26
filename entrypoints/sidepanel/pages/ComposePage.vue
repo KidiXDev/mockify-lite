@@ -27,10 +27,11 @@ import { useComposerStore } from '@/stores/composer';
 const composer = useComposerStore();
 const { tab, host } = useActiveTab();
 
+const url = computed(() => composer.draft.url.trim());
+const validUrl = computed(() => /^https?:\/\/[^/\s]/i.test(url.value));
+const urlError = computed(() => url.value !== '' && !validUrl.value);
 const hasBody = computed(() => !['GET', 'HEAD'].includes(composer.draft.method));
-const canSend = computed(
-  () => !!host.value && composer.draft.url.trim() !== '' && !composer.sending,
-);
+const canSend = computed(() => !!host.value && validUrl.value && !composer.sending);
 const body = computed(() => formatJson(composer.response?.body ?? ''));
 const size = computed(() => formatBytes(new Blob([composer.response?.body ?? '']).size));
 
@@ -56,11 +57,13 @@ function send() {
       </Select>
       <Input
         v-model="composer.draft.url"
-        placeholder="/api/users or full URL"
+        placeholder="https://api.example.com/users"
         aria-label="URL"
+        :aria-invalid="urlError || undefined"
         class="h-8 min-w-0 flex-1 font-mono text-xs"
       />
     </div>
+    <p v-if="urlError" class="text-destructive text-xs">Full URL required</p>
     <div class="flex items-center gap-2">
       <Switch id="with-cookies" v-model="composer.draft.withCookies" />
       <Label for="with-cookies" class="text-xs font-normal">Send cookies</Label>
