@@ -1,5 +1,7 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
   "singleQuote": true,
-  "ignorePatterns": [".wxt/**", ".output/**", "bun.lock"]
+  "ignorePatterns": [".wxt/**", ".output/**", ".agents/**", ".claude/**", "bun.lock"],
+  "sortImports": true,
+  "sortTailwindcss": true
 }
