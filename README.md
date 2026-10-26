@@ -11,7 +11,7 @@ A Chrome side-panel extension for frontend debugging: mock or modify API respons
   - **Edit request**: rewrite the URL (for example prod → staging), add headers, or replace or merge-patch the payload.
   - **Delay**: add latency to any of the above.
 - **Scenarios**: group rules and switch a whole group on or off.
-- **Log**: fetch and XHR traffic for the current tab. "Mock" turns a request into a prefilled rule, "Resend" opens it in Compose, and you can copy any request as cURL.
+- **Log**: fetch and XHR traffic for the current tab. "Mock" turns a request into a prefilled rule, "Resend" opens it in Compose. Right-click a request to copy it as cURL (bash or cmd), PowerShell or fetch, or copy its URL, response or headers.
 - **Compose**: send a request from inside the page, so cookies, origin and CORS behave like the app's own requests. Save requests into collections, and switch between environments (for example `BASE_URL` for local and staging). The URL, headers and body accept macros:
 
   | Macro                               | Value                                                                  |
@@ -21,7 +21,7 @@ A Chrome side-panel extension for frontend debugging: mock or modify API respons
   | `{{cookie.name}}`                   | Cookie for the current page, including httpOnly                        |
   | `{{$uuid}}` / `{{$timestamp}}`      | Random UUID / Unix time in seconds                                     |
 
-  A request with an unresolved macro is not sent.
+  Macros are colored green when they resolve and red when they don't; hover one to see its value, and type `{{` for suggestions. A request with an unresolved macro is not sent. `Ctrl/⌘ + Enter` sends, `Ctrl/⌘ + S` saves.
 
 - **Storage**: view and edit localStorage, sessionStorage and cookies (including httpOnly). JWT values are decoded, with their expiry.
 - **Clear site data**: wipes cookies, storage and cache for the current site, then reloads.
