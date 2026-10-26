@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "vue", "unicorn", "oxc"],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "typescript/no-explicit-any": "error",
+    "eslint/no-unused-vars": "error",
+    "eslint/no-debugger": "error",
+    "eslint/no-var": "error",
+    "eslint/prefer-const": "error",
+    "eslint/eqeqeq": "error"
+  },
+  "ignorePatterns": [".wxt/**", ".output/**"]
+}
