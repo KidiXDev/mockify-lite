@@ -53,6 +53,7 @@ const store = useSettingsStore();
 const log = useLogStore();
 const { tab, host, origin } = useActiveTab();
 const confirmClear = shallowRef(false);
+const activeNav = computed(() => NAV.findIndex((item) => route.path.startsWith(item.to)));
 
 const enabledHere = computed({
   get: () => !!host.value && store.isSiteEnabled(host.value),
@@ -146,21 +147,23 @@ async function clearSiteData() {
       <Switch v-model="enabledHere" :disabled="!host" aria-label="Active on this site" />
     </div>
 
-    <nav class="grid grid-cols-5 border-t">
+    <nav class="relative grid grid-cols-5 border-t">
       <RouterLink
-        v-for="item in NAV"
+        v-for="(item, i) in NAV"
         :key="item.to"
         :to="item.to"
         class="flex flex-col items-center gap-0.5 py-1.5 text-[11px] transition-colors"
-        :class="
-          route.path.startsWith(item.to)
-            ? 'text-foreground shadow-[inset_0_-2px_0_var(--foreground)]'
-            : 'text-muted-foreground hover:text-foreground'
-        "
+        :class="i === activeNav ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'"
       >
         <component :is="item.icon" class="size-4" />
         {{ item.label }}
       </RouterLink>
+      <span
+        aria-hidden="true"
+        class="bg-foreground absolute bottom-0 left-0 h-0.5 w-1/5 transition-[translate,opacity] duration-300 ease-out motion-reduce:transition-none"
+        :class="{ 'opacity-0': activeNav === -1 }"
+        :style="{ translate: `${Math.max(activeNav, 0) * 100}% 0` }"
+      />
     </nav>
   </header>
 
