@@ -1,35 +1,40 @@
-# WXT + Vue 3
+# Mockify Lite
 
-This template should help get you started developing with Vue 3 in WXT.
+A Chrome side-panel extension for frontend debugging: mock or modify API responses, rewrite requests before they reach the backend, inspect traffic, and edit storage.
 
-## UI setup
+## Features
 
-Tailwind CSS v4 is configured through the Vite plugin in `wxt.config.ts`.
-The popup imports the global theme from `entrypoints/popup/style.css`.
+- **Rules**: match requests by method and URL (contains, wildcard or regex), then:
+  - **Mock**: return a status, headers and body without hitting the network.
+  - **Modify**: call the real API, then override the status, headers or body. The body can be replaced or JSON merge-patched.
+  - **Error**: fail the request like a network error.
+  - **Edit request**: rewrite the URL (for example prod → staging), add headers, or replace or merge-patch the payload.
+  - **Delay**: add latency to any of the above.
+- **Scenarios**: group rules and switch a whole group on or off.
+- **Log**: fetch and XHR traffic for the current tab. "Mock" turns a request into a prefilled rule, "Resend" opens it in Compose, and you can copy any request as cURL.
+- **Compose**: send a request from inside the page, so cookies, origin and CORS behave like the app's own requests.
+- **Storage**: view and edit localStorage, sessionStorage and cookies (including httpOnly). JWT values are decoded, with their expiry.
+- **Clear site data**: wipes cookies, storage and cache for the current site, then reloads.
+- **Import / export** rules as JSON.
 
-shadcn-vue follows the [manual installation guide](https://shadcn-vue.com/docs/installation/manual),
-using WXT's existing `@/` alias for the project root. Add components with:
+The interceptor only runs on hosts in the allowlist (Settings, or the switch in the header). The default list is `localhost` and `127.0.0.1`. After enabling a site, reload the page.
+
+## How it works
+
+`entrypoints/interceptor.ts` runs in the page's main world at `document_start` and patches `fetch` and `XMLHttpRequest`. `entrypoints/bridge.ts` runs in the isolated world: it relays rules from extension storage and buffers the request log. The background script registers both scripts for the allowlisted hosts only.
+
+Limitations: synchronous XHR and requests from service workers or web workers bypass rules.
+
+## Development
 
 ```sh
-bunx shadcn-vue@latest add input
+bun install
+bun run dev          # Chrome with the extension loaded and HMR
+bun run build        # .output/chrome-mv3, load it via chrome://extensions → Load unpacked
+bun test             # unit tests for matching, merge patch, rewrite, import, cURL, JWT
+bun run type-check
+bun run lint
+bun run format
 ```
 
-Components are generated in `components/ui`. The starter counter uses `Button`.
-
-## Code quality
-
-```sh
-bun run lint          # Oxlint checks, including explicit any as an error
-bun run lint:fix      # Apply safe lint fixes
-bun run format       # Format with Oxfmt
-bun run format:check # Check formatting without changing files
-bun run type-check   # Vue and TypeScript type checking
-```
-
-Oxlint treats correctness issues, unused variables, `debugger`, `var`, loose
-equality, and explicit `any` types as errors, and requires `const` where possible.
-Generated WXT files and build output are excluded from linting and formatting.
-
-## Recommended IDE Setup
-
-- [VS Code](https://code.visualstudio.com/) + [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar).
+UI components come from shadcn-vue (`bunx shadcn-vue@latest add <component>`) and live in `components/ui`.
