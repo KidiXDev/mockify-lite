@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import {
+  CopyIcon,
   DatabaseIcon,
   EllipsisIcon,
   GlobeLockIcon,
+  PencilIcon,
   PlusIcon,
   RefreshCwIcon,
   SearchIcon,
   Trash2Icon,
 } from '@lucide/vue';
-import { useTimeAgo } from '@vueuse/core';
+import { useClipboard, useTimeAgo } from '@vueuse/core';
 import { computed, ref, shallowRef, watch } from 'vue';
 import { toast } from 'vue-sonner';
 import type { Browser } from 'wxt/browser';
@@ -30,6 +32,13 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import {
   Dialog,
   DialogContent,
@@ -77,6 +86,9 @@ const items = shallowRef<Item[]>([]);
 const query = shallowRef('');
 const editing = ref<{ original?: Item; key: string; value: string }>();
 const confirmClear = shallowRef(false);
+const target = shallowRef<Item>();
+const menuOpen = shallowRef(false);
+const { copy } = useClipboard({ legacy: true });
 
 const areaLabel = computed(() => AREAS.find((a) => a.value === area.value)!.label.toLowerCase());
 const visible = computed(() => {
@@ -86,12 +98,7 @@ const visible = computed(() => {
   );
 });
 
-const dialogOpen = computed({
-  get: () => !!editing.value,
-  set: (open) => {
-    if (!open) editing.value = undefined;
-  },
-});
+const dialogOpen = shallowRef(false);
 const jwt = computed(() => (editing.value ? decodeJwt(editing.value.value) : null));
 const jwtPayload = computed(() => (jwt.value ? JSON.stringify(jwt.value.payload, null, 2) : ''));
 const expiresAgo = useTimeAgo(() => jwt.value?.exp ?? Date.now());
@@ -139,8 +146,23 @@ watch([area, () => tab.value?.id, () => tab.value?.url, () => tab.value?.status]
   immediate: true,
 });
 
+function pick(event: MouseEvent) {
+  const index = (event.target as Element).closest<HTMLElement>('[data-index]')?.dataset.index;
+  target.value = index === undefined ? undefined : visible.value[Number(index)];
+}
+
+async function copyText(text: string) {
+  await copy(text);
+  toast.success('Copied');
+}
+
+function copyJwtPayload(item: Item) {
+  void copyText(JSON.stringify(decodeJwt(item.value)?.payload, null, 2));
+}
+
 function edit(item?: Item) {
   editing.value = { original: item, key: item?.key ?? '', value: item?.value ?? '' };
+  dialogOpen.value = true;
 }
 
 async function write(item: Item | undefined, key: string, value: string | null) {
@@ -161,7 +183,7 @@ async function save() {
   if (!e?.key) return;
   try {
     await write(e.original, e.key, e.value);
-    editing.value = undefined;
+    dialogOpen.value = false;
     toast.success('Saved');
   } catch (error) {
     toast.error(String(error));
@@ -171,7 +193,7 @@ async function save() {
 
 async function remove(item: Item) {
   await write(item, item.key, null);
-  editing.value = undefined;
+  dialogOpen.value = false;
   toast('Deleted');
   await load();
 }
@@ -241,29 +263,52 @@ async function clearAll() {
     </div>
     <EmptyState v-if="!items.length" :icon="DatabaseIcon" title="Empty" />
     <EmptyState v-else-if="!visible.length" :icon="SearchIcon" title="No matches" />
-    <ul v-else class="divide-y">
-      <li
-        v-for="item in visible"
-        :key="item.key + (item.cookie?.domain ?? '') + (item.cookie?.path ?? '')"
-      >
-        <button
-          type="button"
-          class="hover:bg-muted/50 w-full px-3 py-2 text-left"
-          @click="edit(item)"
-        >
-          <div class="flex items-center gap-1.5">
-            <span class="truncate font-mono text-xs font-medium">{{ item.key }}</span>
-            <Badge v-if="item.jwt" variant="secondary" class="px-1.5 py-0 text-[10px]">JWT</Badge>
-            <Badge v-if="item.cookie?.httpOnly" variant="outline" class="px-1.5 py-0 text-[10px]"
-              >HttpOnly</Badge
+    <ContextMenu v-else v-model:open="menuOpen">
+      <ContextMenuTrigger as-child>
+        <ul class="divide-y" @contextmenu.capture="pick">
+          <li
+            v-for="(item, i) in visible"
+            :key="item.key + (item.cookie?.domain ?? '') + (item.cookie?.path ?? '')"
+            :data-index="i"
+          >
+            <button
+              type="button"
+              class="hover:bg-muted/50 w-full px-3 py-2 text-left"
+              :class="{ 'bg-muted/70': menuOpen && item === target }"
+              @click="edit(item)"
             >
-          </div>
-          <div class="text-muted-foreground truncate font-mono text-[11px]">
-            {{ item.value || '""' }}
-          </div>
-        </button>
-      </li>
-    </ul>
+              <div class="flex items-center gap-1.5">
+                <span class="truncate font-mono text-xs font-medium">{{ item.key }}</span>
+                <Badge v-if="item.jwt" variant="secondary" class="px-1.5 py-0 text-[10px]"
+                  >JWT</Badge
+                >
+                <Badge
+                  v-if="item.cookie?.httpOnly"
+                  variant="outline"
+                  class="px-1.5 py-0 text-[10px]"
+                  >HttpOnly</Badge
+                >
+              </div>
+              <div class="text-muted-foreground truncate font-mono text-[11px]">
+                {{ item.value || '""' }}
+              </div>
+            </button>
+          </li>
+        </ul>
+      </ContextMenuTrigger>
+      <ContextMenuContent v-if="target" class="w-44">
+        <ContextMenuItem @select="edit(target)"><PencilIcon /> Edit</ContextMenuItem>
+        <ContextMenuItem @select="copyText(target!.key)"><CopyIcon /> Copy key</ContextMenuItem>
+        <ContextMenuItem @select="copyText(target!.value)"><CopyIcon /> Copy value</ContextMenuItem>
+        <ContextMenuItem v-if="target.jwt" @select="copyJwtPayload(target!)">
+          <CopyIcon /> Copy JWT payload
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem variant="destructive" @select="remove(target!)">
+          <Trash2Icon /> Delete
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   </template>
 
   <Dialog v-model:open="dialogOpen">

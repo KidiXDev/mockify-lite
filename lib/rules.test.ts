@@ -2,7 +2,7 @@
 import { expect, test } from 'bun:test';
 
 import { interpolate, isFullUrl, macroScopes } from './compose';
-import { decodeJwt, toCurl } from './format';
+import { decodeJwt, toCurl, toFetch, toPowerShell } from './format';
 import {
   applyBody,
   type Config,
@@ -103,18 +103,53 @@ test('normalizeRule', () => {
   expect(rule.request.bodyMode).toBe('none');
 });
 
-test('toCurl', () => {
-  expect(
-    toCurl({
-      method: 'POST',
-      url: 'https://x.com/a',
-      headers: [{ name: 'Content-Type', value: 'application/json' }],
-      body: `{"name":"O'Brien"}`,
-    }),
-  ).toBe(
-    `curl 'https://x.com/a' -X POST -H 'Content-Type: application/json' --data-raw '{"name":"O'\\''Brien"}'`,
+test('copy formats', () => {
+  const req = {
+    method: 'POST',
+    url: 'https://x.com/a?q=1&b=%20',
+    headers: [
+      { name: 'Content-Type', value: 'application/json' },
+      { name: 'X-Price', value: '$5' },
+    ],
+    body: `{"name":"O'Brien"}`,
+    credentials: 'include' as const,
+  };
+  expect(toCurl(req)).toBe(
+    [
+      `curl 'https://x.com/a?q=1&b=%20'`,
+      `-X POST`,
+      `-H 'Content-Type: application/json'`,
+      `-H 'X-Price: $5'`,
+      `--data-raw '{"name":"O'\\''Brien"}'`,
+    ].join(' \\\n  '),
   );
   expect(toCurl({ method: 'GET', url: 'https://x.com', headers: [] })).toBe(`curl 'https://x.com'`);
+  expect(toCurl(req, 'cmd')).toBe(
+    [
+      `curl ^"https://x.com/a?q=1^&b=^%^20^"`,
+      `-X POST`,
+      `-H ^"Content-Type: application/json^"`,
+      `-H ^"X-Price: ^$5^"`,
+      `--data-raw ^"^{^\\^"name^\\^":^\\^"O'Brien^\\^"^}^"`,
+    ].join(' ^\n  '),
+  );
+  expect(toPowerShell(req)).toBe(
+    [
+      `Invoke-WebRequest -UseBasicParsing -Uri "https://x.com/a?q=1&b=%20"`,
+      `-Method "POST"`,
+      `-Headers @{\n  "X-Price"="\`$5"\n}`,
+      `-ContentType "application/json"`,
+      `-Body "{\`"name\`":\`"O'Brien\`"}"`,
+    ].join(' `\n'),
+  );
+  const fetchInit = (code: string) => JSON.parse(code.slice(code.indexOf(', ') + 2, -2));
+  expect(fetchInit(toFetch(req))).toEqual({
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Price': '$5' },
+    body: req.body,
+    credentials: 'include',
+  });
+  expect(fetchInit(toFetch(req, true)).credentials).toBeUndefined();
 });
 
 test('decodeJwt', () => {

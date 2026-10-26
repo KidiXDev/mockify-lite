@@ -1,4 +1,4 @@
-import { type Header, isObject, METHODS, type Rule } from './rules';
+import { type Header, isObject, type LogEntry, METHODS, type Rule } from './rules';
 
 export const METHOD_OPTIONS = ['ANY', ...METHODS] as const;
 
@@ -44,20 +44,85 @@ export function isJson(text: string): boolean {
   }
 }
 
-const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
-
-export function toCurl(req: {
+interface HttpRequest {
   method: string;
   url: string;
   headers: Header[];
   body?: string;
-}): string {
-  const parts = ['curl', shellQuote(req.url)];
-  if (req.method !== 'GET') parts.push('-X', req.method);
-  for (const h of req.headers) parts.push('-H', shellQuote(`${h.name}: ${h.value}`));
-  if (req.body) parts.push('--data-raw', shellQuote(req.body));
-  return parts.join(' ');
+  credentials?: RequestCredentials;
 }
+
+const bashQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+
+// Matches Chrome DevTools: backslashes for the MS C runtime, then carets for cmd.exe.
+const cmdQuote = (s: string) =>
+  `^"${s
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/[^\w\s\-:=+~'/.,?;()*`]/g, '^$&')
+    .replace(/%(?=\w)/g, '%^')
+    .replace(/\r?\n/g, '^\n\n')}^"`;
+
+const psQuote = (s: string) => `"${s.replace(/[`$"]/g, '`$&')}"`;
+
+export function toCurl(req: HttpRequest, shell: 'bash' | 'cmd' = 'bash'): string {
+  const quote = shell === 'bash' ? bashQuote : cmdQuote;
+  const parts = [`curl ${quote(req.url)}`];
+  if (req.method !== 'GET') parts.push(`-X ${req.method}`);
+  for (const h of req.headers) parts.push(`-H ${quote(`${h.name}: ${h.value}`)}`);
+  if (req.body) parts.push(`--data-raw ${quote(req.body)}`);
+  return parts.join(shell === 'bash' ? ' \\\n  ' : ' ^\n  ');
+}
+
+export function toPowerShell(req: HttpRequest): string {
+  const contentType = req.headers.find((h) => h.name.toLowerCase() === 'content-type');
+  const headers = req.headers.filter((h) => h !== contentType);
+  const parts = [`Invoke-WebRequest -UseBasicParsing -Uri ${psQuote(req.url)}`];
+  if (req.method !== 'GET') parts.push(`-Method ${psQuote(req.method)}`);
+  if (headers.length) {
+    const lines = headers.map((h) => `  ${psQuote(h.name)}=${psQuote(h.value)}`);
+    parts.push(`-Headers @{\n${lines.join('\n')}\n}`);
+  }
+  if (contentType) parts.push(`-ContentType ${psQuote(contentType.value)}`);
+  if (req.body) parts.push(`-Body ${psQuote(req.body)}`);
+  return parts.join(' `\n');
+}
+
+export function toFetch(req: HttpRequest, node = false): string {
+  const init: Record<string, unknown> = {
+    method: req.method,
+    headers: Object.fromEntries(req.headers.map((h) => [h.name, h.value])),
+  };
+  if (req.body) init.body = req.body;
+  if (!node && req.credentials) init.credentials = req.credentials;
+  return `fetch(${JSON.stringify(req.url)}, ${JSON.stringify(init, null, 2)});`;
+}
+
+const requestOf = (e: LogEntry): HttpRequest => ({
+  method: e.method,
+  url: e.url,
+  headers: e.reqHeaders,
+  body: e.reqBody,
+  credentials: e.credentials,
+});
+
+const headerLines = (headers: Header[]) => headers.map((h) => `${h.name}: ${h.value}`).join('\n');
+
+export const COPY_MENU: { label: string; text: (entry: LogEntry) => string | undefined }[][] = [
+  [{ label: 'URL', text: (e) => e.url }],
+  [
+    { label: 'cURL (bash)', text: (e) => toCurl(requestOf(e)) },
+    { label: 'cURL (cmd)', text: (e) => toCurl(requestOf(e), 'cmd') },
+    { label: 'PowerShell', text: (e) => toPowerShell(requestOf(e)) },
+    { label: 'fetch', text: (e) => toFetch(requestOf(e)) },
+    { label: 'fetch (Node.js)', text: (e) => toFetch(requestOf(e), true) },
+  ],
+  [
+    { label: 'Response', text: (e) => e.resBody },
+    { label: 'Request headers', text: (e) => headerLines(e.reqHeaders) },
+    { label: 'Response headers', text: (e) => headerLines(e.resHeaders) },
+  ],
+];
 
 function decodeSegment(segment: string): unknown {
   const binary = atob(segment.replace(/-/g, '+').replace(/_/g, '/'));
@@ -99,6 +164,10 @@ export function statusClass(status: number): string {
   if (status >= 400) return 'text-amber-600 dark:text-amber-400';
   if (status >= 300) return 'text-sky-600 dark:text-sky-400';
   return 'text-emerald-600 dark:text-emerald-400';
+}
+
+export function formatTime(time: number): string {
+  return new Date(time).toLocaleTimeString([], { hour12: false });
 }
 
 export function formatMs(ms: number): string {

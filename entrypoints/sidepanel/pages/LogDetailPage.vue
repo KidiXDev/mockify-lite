@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ClipboardCopyIcon, SearchXIcon, SendIcon, WandSparklesIcon } from '@lucide/vue';
+import { CopyIcon, SearchXIcon, SendIcon, WandSparklesIcon } from '@lucide/vue';
 import { useClipboard } from '@vueuse/core';
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
@@ -11,9 +11,24 @@ import HeaderTable from '@/components/HeaderTable.vue';
 import JsonEditor from '@/components/JsonEditor.vue';
 import PageBar from '@/components/PageBar.vue';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { formatJson, formatMs, methodClass, statusClass, toCurl } from '@/lib/format';
+import {
+  COPY_MENU,
+  formatJson,
+  formatMs,
+  formatTime,
+  methodClass,
+  statusClass,
+} from '@/lib/format';
+import type { LogEntry } from '@/lib/rules';
 import { useComposerStore } from '@/stores/composer';
 import { useLogStore } from '@/stores/log';
 import { useRulesStore } from '@/stores/rules';
@@ -30,9 +45,8 @@ const rule = computed(() => (entry.value?.ruleId ? rules.get(entry.value.ruleId)
 const reqBody = computed(() => formatJson(entry.value?.reqBody ?? ''));
 const resBody = computed(() => formatJson(entry.value?.resBody ?? ''));
 
-async function copyCurl() {
-  const e = entry.value!;
-  await copy(toCurl({ method: e.method, url: e.url, headers: e.reqHeaders, body: e.reqBody }));
+async function copyAs(text: (entry: LogEntry) => string | undefined) {
+  await copy(text(entry.value!) ?? '');
   toast.success('Copied');
 }
 
@@ -53,14 +67,29 @@ function resend() {
       </span>
     </template>
     <template v-if="entry" #actions>
-      <Tooltip>
-        <TooltipTrigger as-child>
-          <Button variant="ghost" size="icon-sm" aria-label="Copy as cURL" @click="copyCurl"
-            ><ClipboardCopyIcon
-          /></Button>
-        </TooltipTrigger>
-        <TooltipContent>Copy cURL</TooltipContent>
-      </Tooltip>
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <DropdownMenuTrigger as-child>
+              <Button variant="ghost" size="icon-sm" aria-label="Copy"><CopyIcon /></Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Copy</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="end" class="w-44">
+          <template v-for="(group, i) in COPY_MENU" :key="i">
+            <DropdownMenuSeparator v-if="i" />
+            <DropdownMenuItem
+              v-for="item in group"
+              :key="item.label"
+              :disabled="!item.text(entry)"
+              @select="copyAs(item.text)"
+            >
+              {{ item.label }}
+            </DropdownMenuItem>
+          </template>
+        </DropdownMenuContent>
+      </DropdownMenu>
       <Button variant="outline" size="sm" @click="resend"><SendIcon /> Resend</Button>
       <Button size="sm" as-child>
         <RouterLink :to="{ path: '/rules/new', query: { from: entry.id } }"
@@ -77,7 +106,7 @@ function resend() {
     <div class="text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 text-xs">
       <span class="uppercase">{{ entry.type }}</span>
       <span>{{ formatMs(entry.duration) }}</span>
-      <span>{{ new Date(entry.time).toLocaleTimeString() }}</span>
+      <span>{{ formatTime(entry.time) }}</span>
       <RouterLink
         v-if="rule"
         :to="`/rules/${rule.id}`"

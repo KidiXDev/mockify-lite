@@ -4,17 +4,27 @@ import {
   CopyIcon,
   EllipsisVerticalIcon,
   ListChecksIcon,
+  PencilIcon,
   PlusIcon,
+  PowerIcon,
   SearchIcon,
   Trash2Icon,
 } from '@lucide/vue';
 import { computed, shallowRef } from 'vue';
+import { useRouter } from 'vue-router';
 import { toast } from 'vue-sonner';
 
 import EmptyState from '@/components/EmptyState.vue';
 import PageBar from '@/components/PageBar.vue';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,12 +34,16 @@ import {
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { methodClass, ruleSummary } from '@/lib/format';
+import type { Rule } from '@/lib/rules';
 import { useRulesStore } from '@/stores/rules';
 import { useSettingsStore } from '@/stores/settings';
 
+const router = useRouter();
 const store = useRulesStore();
 const settings = useSettingsStore();
 const query = shallowRef('');
+const target = shallowRef<Rule>();
+const menuOpen = shallowRef(false);
 
 const sections = computed(() => {
   const q = query.value.trim().toLowerCase();
@@ -40,6 +54,11 @@ const sections = computed(() => {
     .map((name) => ({ name, rules: visible.filter((r) => r.group === name) }))
     .filter((section) => section.rules.length);
 });
+
+function pick(event: MouseEvent) {
+  const id = (event.target as Element).closest<HTMLElement>('[data-id]')?.dataset.id;
+  target.value = id ? store.get(id) : undefined;
+}
 
 function remove(id: string) {
   const undo = store.remove(id);
@@ -97,53 +116,76 @@ function remove(id: string) {
       />
     </div>
     <CollapsibleContent>
-      <ul class="divide-y">
-        <li
-          v-for="rule in section.rules"
-          :key="rule.id"
-          class="hover:bg-muted/50 flex items-center gap-2.5 px-3 py-2"
-          :class="{ 'opacity-50': !settings.isGroupEnabled(rule.group) }"
-        >
-          <Switch
-            :model-value="rule.enabled"
-            :aria-label="`Enable ${rule.name || rule.url}`"
-            @update:model-value="store.setEnabled(rule.id, $event)"
-          />
-          <RouterLink
-            :to="`/rules/${rule.id}`"
-            class="min-w-0 flex-1"
-            :class="{ 'opacity-60': !rule.enabled }"
-          >
-            <div class="flex items-baseline gap-1.5">
-              <span
-                class="shrink-0 font-mono text-[11px] font-semibold"
-                :class="methodClass(rule.method)"
+      <ContextMenu @update:open="menuOpen = $event">
+        <ContextMenuTrigger as-child>
+          <ul class="divide-y" @contextmenu.capture="pick">
+            <li
+              v-for="rule in section.rules"
+              :key="rule.id"
+              :data-id="rule.id"
+              class="hover:bg-muted/50 flex items-center gap-2.5 px-3 py-2"
+              :class="{
+                'opacity-50': !settings.isGroupEnabled(rule.group),
+                'bg-muted/70': menuOpen && rule.id === target?.id,
+              }"
+            >
+              <Switch
+                :model-value="rule.enabled"
+                :aria-label="`Enable ${rule.name || rule.url}`"
+                @update:model-value="store.setEnabled(rule.id, $event)"
+              />
+              <RouterLink
+                :to="`/rules/${rule.id}`"
+                class="min-w-0 flex-1"
+                :class="{ 'opacity-60': !rule.enabled }"
               >
-                {{ rule.method === 'ANY' ? '*' : rule.method }}
-              </span>
-              <span class="truncate font-mono text-xs">{{ rule.url }}</span>
-            </div>
-            <div class="text-muted-foreground truncate text-xs">
-              <template v-if="rule.name">{{ rule.name }} · </template>{{ ruleSummary(rule) }}
-            </div>
-          </RouterLink>
-          <DropdownMenu>
-            <DropdownMenuTrigger as-child>
-              <Button variant="ghost" size="icon-sm" aria-label="Rule actions"
-                ><EllipsisVerticalIcon
-              /></Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem @select="store.duplicate(rule.id)"
-                ><CopyIcon /> Duplicate</DropdownMenuItem
-              >
-              <DropdownMenuItem variant="destructive" @select="remove(rule.id)"
-                ><Trash2Icon /> Delete</DropdownMenuItem
-              >
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </li>
-      </ul>
+                <div class="flex items-baseline gap-1.5">
+                  <span
+                    class="shrink-0 font-mono text-[11px] font-semibold"
+                    :class="methodClass(rule.method)"
+                  >
+                    {{ rule.method === 'ANY' ? '*' : rule.method }}
+                  </span>
+                  <span class="truncate font-mono text-xs">{{ rule.url }}</span>
+                </div>
+                <div class="text-muted-foreground truncate text-xs">
+                  <template v-if="rule.name">{{ rule.name }} · </template>{{ ruleSummary(rule) }}
+                </div>
+              </RouterLink>
+              <DropdownMenu>
+                <DropdownMenuTrigger as-child>
+                  <Button variant="ghost" size="icon-sm" aria-label="Rule actions"
+                    ><EllipsisVerticalIcon
+                  /></Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem @select="store.duplicate(rule.id)"
+                    ><CopyIcon /> Duplicate</DropdownMenuItem
+                  >
+                  <DropdownMenuItem variant="destructive" @select="remove(rule.id)"
+                    ><Trash2Icon /> Delete</DropdownMenuItem
+                  >
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </li>
+          </ul>
+        </ContextMenuTrigger>
+        <ContextMenuContent v-if="target" class="w-44">
+          <ContextMenuItem @select="router.push(`/rules/${target!.id}`)">
+            <PencilIcon /> Edit
+          </ContextMenuItem>
+          <ContextMenuItem @select="store.setEnabled(target!.id, !target!.enabled)">
+            <PowerIcon /> {{ target.enabled ? 'Disable' : 'Enable' }}
+          </ContextMenuItem>
+          <ContextMenuItem @select="store.duplicate(target!.id)">
+            <CopyIcon /> Duplicate
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem variant="destructive" @select="remove(target!.id)">
+            <Trash2Icon /> Delete
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
     </CollapsibleContent>
   </Collapsible>
 </template>
